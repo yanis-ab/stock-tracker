@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Base de donnees (generee automatiquement)
+data/stock_monitor.db
+
+# Logs
+logs/
+
+# Secrets (ne jamais commiter config.yaml avec credentials reels)
+# config.yaml est commite avec des valeurs d'exemple — adapter avant utilisation
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+Thumbs.db

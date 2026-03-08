@@ -1,0 +1,37 @@
+# Planification
+schedule:
+  time: "09:00"           # Heure du check quotidien (format HH:MM)
+  timezone: "Europe/Paris"
+
+# Watchlist : actions a surveiller
+watchlist:
+  - ticker: "ASML.AS"
+    name: "ASML"
+    target_price: 750.0
+    alert_type: "below"   # 'below' = alerte si cours < cible, 'above' = alerte si cours > cible
+    notes: "Attendre correction post-resultats"
+  - ticker: "STM.MI"
+    name: "STMicroelectronics"
+    target_price: 22.0
+    alert_type: "below"
+    notes: "Rebond de cycle semi-conducteurs"
+  - ticker: "AIR.PA"
+    name: "Airbus"
+    target_price: 155.0
+    alert_type: "below"
+    notes: ""
+
+# Notifications email
+email:
+  enabled: false
+  sender: "ton.adresse@gmail.com"
+  password: "xxxx xxxx xxxx xxxx"  # Mot de passe d'application Gmail
+  recipient: "ton.adresse@gmail.com"
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+
+# Notifications Telegram
+telegram:
+  enabled: false
+  bot_token: "123456789:ABCDEFGabcdefg"  # Token du bot Telegram
+  chat_id: "987654321"                   # Ton Chat ID
