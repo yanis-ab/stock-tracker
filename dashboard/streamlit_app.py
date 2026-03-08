@@ -7,20 +7,16 @@ import os
 import sys
 from pathlib import Path
 
-# Assurer que le projet est dans le path Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import yaml
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 
 def _inject_streamlit_secrets() -> None:
-    """
-    Sur Streamlit Community Cloud, injecte les secrets dans les variables
-    d'environnement pour que database.py et scheduler.py puissent les lire.
-    """
     try:
         secrets = st.secrets
         for key in ["DATABASE_URL", "EMAIL_SENDER", "EMAIL_PASSWORD",
@@ -28,16 +24,14 @@ def _inject_streamlit_secrets() -> None:
             if key in secrets and not os.environ.get(key):
                 os.environ[key] = secrets[key]
     except Exception:
-        pass  # Pas de secrets configures, mode local
+        pass
 
 
 _inject_streamlit_secrets()
 
-from app.database import (
-    init_db, get_all_latest_prices, get_price_history, get_all_alerts,
-    save_alert,
-)
-from app.analyzer import compute_distance_to_target
+from app.database import init_db, get_all_latest_prices, get_price_history, get_all_alerts
+from app.analyzer import compute_distance_to_target, compute_conviction_score
+from app.fetcher import fetch_technicals, fetch_analyst_data
 
 # ---------------------------------------------------------------------------
 # Config
@@ -47,66 +41,46 @@ _BASE_DIR = Path(__file__).resolve().parent.parent
 _CONFIG_PATH = _BASE_DIR / "config.yaml"
 
 SUGGESTIONS = [
-    {
-        "ticker": "ASML.AS", "name": "ASML", "sector": "Semi-conducteurs",
-        "thesis": "Monopole absolu sur les machines EUV, demande IA structurelle",
-        "risk": "medium", "watch_price": 750.0,
-        "why_now": "Correction depuis pic 2024, valorisation raisonnable",
-    },
-    {
-        "ticker": "STM.MI", "name": "STMicroelectronics", "sector": "Semi-conducteurs",
-        "thesis": "Rebond de cycle, partenariat AWS, SiC automobile",
-        "risk": "high", "watch_price": 22.0,
-        "why_now": "Point bas de cycle, catalyseurs multiples en 2025-2026",
-    },
-    {
-        "ticker": "AIR.PA", "name": "Airbus", "sector": "Aeronautique",
-        "thesis": "Carnet de commandes record, duopole mondial",
-        "risk": "low", "watch_price": 155.0,
-        "why_now": "Visibilite sur 10 ans, montee en cadence A320",
-    },
-    {
-        "ticker": "SAF.PA", "name": "Safran", "sector": "Aeronautique",
-        "thesis": "Moteurs LEAP, dividende croissant, MRO",
-        "risk": "low", "watch_price": 200.0,
-        "why_now": "Profite de la reprise du trafic aerien mondial",
-    },
-    {
-        "ticker": "DSY.PA", "name": "Dassault Systemes", "sector": "Logiciels industriels",
-        "thesis": "CATIA/3DEXPERIENCE, sous-valorise apres -29% en 2025",
-        "risk": "medium", "watch_price": 28.0,
-        "why_now": "Retour a la croissance attendu en 2026",
-    },
-    {
-        "ticker": "OR.PA", "name": "L'Oreal", "sector": "Luxe / Beaute",
-        "thesis": "Leader mondial beaute, defensif, pricing power",
-        "risk": "low", "watch_price": 350.0,
-        "why_now": "Correction possible sur exposition Chine",
-    },
-    {
-        "ticker": "MC.PA", "name": "LVMH", "sector": "Luxe",
-        "thesis": "Conglomerat luxe diversifie, rebond Chine attendu",
-        "risk": "medium", "watch_price": 600.0,
-        "why_now": "Valorisation plus raisonnable post-correction 2024",
-    },
-    {
-        "ticker": "BNP.PA", "name": "BNP Paribas", "sector": "Banque",
-        "thesis": "Dividende genereux, beneficie des taux eleves",
-        "risk": "medium", "watch_price": 65.0,
-        "why_now": "PER bas, dividende >7%, solide en Europe",
-    },
-    {
-        "ticker": "TTE.PA", "name": "TotalEnergies", "sector": "Energie",
-        "thesis": "Transition + dividende solide + GNL",
-        "risk": "medium", "watch_price": 58.0,
-        "why_now": "Cash-flow solide, rachat d'actions actif",
-    },
-    {
-        "ticker": "DG.PA", "name": "Safran Defence (Dassault Aviation)", "sector": "Defense",
-        "thesis": "Budgets defense europeens en hausse, carnet plein",
-        "risk": "low", "watch_price": 220.0,
-        "why_now": "Contexte geopolitique favorable sur le long terme",
-    },
+    {"ticker": "ASML.AS", "name": "ASML", "sector": "Semi-conducteurs",
+     "thesis": "Monopole absolu sur les machines EUV, demande IA structurelle",
+     "risk": "medium", "watch_price": 750.0,
+     "why_now": "Correction depuis pic 2024, valorisation raisonnable"},
+    {"ticker": "STM.MI", "name": "STMicroelectronics", "sector": "Semi-conducteurs",
+     "thesis": "Rebond de cycle, partenariat AWS, SiC automobile",
+     "risk": "high", "watch_price": 22.0,
+     "why_now": "Point bas de cycle, catalyseurs multiples en 2025-2026"},
+    {"ticker": "AIR.PA", "name": "Airbus", "sector": "Aeronautique",
+     "thesis": "Carnet de commandes record, duopole mondial",
+     "risk": "low", "watch_price": 155.0,
+     "why_now": "Visibilite sur 10 ans, montee en cadence A320"},
+    {"ticker": "SAF.PA", "name": "Safran", "sector": "Aeronautique",
+     "thesis": "Moteurs LEAP, dividende croissant, MRO",
+     "risk": "low", "watch_price": 200.0,
+     "why_now": "Profite de la reprise du trafic aerien mondial"},
+    {"ticker": "DSY.PA", "name": "Dassault Systemes", "sector": "Logiciels industriels",
+     "thesis": "CATIA/3DEXPERIENCE, sous-valorise apres -29% en 2025",
+     "risk": "medium", "watch_price": 28.0,
+     "why_now": "Retour a la croissance attendu en 2026"},
+    {"ticker": "OR.PA", "name": "L'Oreal", "sector": "Luxe / Beaute",
+     "thesis": "Leader mondial beaute, defensif, pricing power",
+     "risk": "low", "watch_price": 350.0,
+     "why_now": "Correction possible sur exposition Chine"},
+    {"ticker": "MC.PA", "name": "LVMH", "sector": "Luxe",
+     "thesis": "Conglomerat luxe diversifie, rebond Chine attendu",
+     "risk": "medium", "watch_price": 600.0,
+     "why_now": "Valorisation plus raisonnable post-correction 2024"},
+    {"ticker": "BNP.PA", "name": "BNP Paribas", "sector": "Banque",
+     "thesis": "Dividende genereux, beneficie des taux eleves",
+     "risk": "medium", "watch_price": 65.0,
+     "why_now": "PER bas, dividende >7%, solide en Europe"},
+    {"ticker": "TTE.PA", "name": "TotalEnergies", "sector": "Energie",
+     "thesis": "Transition + dividende solide + GNL",
+     "risk": "medium", "watch_price": 58.0,
+     "why_now": "Cash-flow solide, rachat d'actions actif"},
+    {"ticker": "DG.PA", "name": "Dassault Aviation", "sector": "Defense",
+     "thesis": "Budgets defense europeens en hausse, carnet plein",
+     "risk": "low", "watch_price": 220.0,
+     "why_now": "Contexte geopolitique favorable sur le long terme"},
 ]
 
 
@@ -124,79 +98,200 @@ def save_config(config: dict) -> None:
         yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
-def status_badge(distance_pct: float, alert_type: str) -> str:
-    if alert_type == "below":
-        if distance_pct < 0:
-            return "ALERTE"
-        elif distance_pct < 5:
-            return "Proche"
-        else:
-            return "OK"
-    else:  # above
-        if distance_pct > 0:
-            return "ALERTE"
-        elif distance_pct > -5:
-            return "Proche"
-        else:
-            return "OK"
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_technicals_cached(ticker: str) -> dict:
+    return fetch_technicals(ticker)
 
 
-def badge_color(status: str) -> str:
-    return {"ALERTE": "#c0392b", "Proche": "#e67e22", "OK": "#27ae60"}.get(status, "#999")
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_analyst_cached(ticker: str) -> dict:
+    return fetch_analyst_data(ticker)
+
+
+def _score_color(score: int) -> str:
+    return {5: "#27ae60", 4: "#27ae60", 3: "#2980b9", 2: "#e67e22", 1: "#e74c3c", 0: "#95a5a6"}.get(score, "#95a5a6")
+
+
+def _rsi_color(rsi: float | None) -> str:
+    if rsi is None:
+        return "#999"
+    if rsi < 35:
+        return "#27ae60"
+    if rsi < 50:
+        return "#2980b9"
+    if rsi < 70:
+        return "#e67e22"
+    return "#c0392b"
+
+
+def _score_stars(score: int) -> str:
+    return "●" * score + "○" * (5 - score)
 
 
 # ---------------------------------------------------------------------------
-# Pages
+# Page : Vue d'ensemble
 # ---------------------------------------------------------------------------
 
 def page_overview(config: dict) -> None:
     st.title("Vue d'ensemble")
-    st.markdown("Tableau de toutes les actions surveillees avec leur statut en temps reel.")
 
     watchlist = config.get("watchlist", [])
     if not watchlist:
-        st.warning("Watchlist vide. Ajoutez des actions dans l'onglet **Watchlist & Config**.")
+        st.warning("Watchlist vide. Ajoutez des actions dans **Watchlist & Config**.")
         return
 
     tickers = [item["ticker"] for item in watchlist]
-    prices = {p["ticker"]: p for p in get_all_latest_prices(tickers)}
+    prices_db = {p["ticker"]: p for p in get_all_latest_prices(tickers)}
 
-    rows = []
-    for item in watchlist:
+    st.caption("Les indicateurs techniques et analystes sont mis en cache 1h. Cours depuis la base de donnees locale.")
+
+    # Tri par score decroissant
+    stock_data = []
+    progress = st.progress(0, text="Chargement des indicateurs...")
+    for i, item in enumerate(watchlist):
         ticker = item["ticker"]
-        price_data = prices.get(ticker)
+        price_data = prices_db.get(ticker)
         current = price_data["close_price"] if price_data else None
         target = item.get("target_price")
         alert_type = item.get("alert_type", "below")
 
+        tech = _fetch_technicals_cached(ticker)
+        analyst = _fetch_analyst_cached(ticker)
+
+        conviction = None
         if current and target:
-            dist = compute_distance_to_target(current, target)
-            status = status_badge(dist, alert_type)
-        else:
-            dist = None
-            status = "N/A"
+            conviction = compute_conviction_score(current, target, alert_type, tech, analyst)
+
+        stock_data.append({
+            "item": item, "current": current, "target": target,
+            "alert_type": alert_type, "tech": tech, "analyst": analyst,
+            "conviction": conviction,
+        })
+        progress.progress((i + 1) / len(watchlist), text=f"Chargement {ticker}...")
+
+    progress.empty()
+    stock_data.sort(key=lambda x: x["conviction"]["score"] if x["conviction"] else -1, reverse=True)
+
+    # --- Tableau de synthese ---
+    st.subheader("Tableau de synthese")
+
+    rows = []
+    for d in stock_data:
+        ticker = d["item"]["ticker"]
+        current = d["current"]
+        target = d["target"]
+        tech = d["tech"]
+        analyst = d["analyst"]
+        conviction = d["conviction"]
+
+        dist = compute_distance_to_target(current, target) if (current and target) else None
+        upside = analyst.get("upside_pct")
+        rsi = tech.get("rsi")
+        ma200 = tech.get("ma200")
+        vs_ma200 = tech.get("pct_from_ma200")
+        reco = (analyst.get("recommendation") or "").replace("_", " ").title()
 
         rows.append({
-            "Ticker": ticker,
-            "Nom": item.get("name", ticker),
-            "Cours actuel": f"{current:.2f}" if current else "—",
-            "Prix cible": f"{target:.2f}" if target else "—",
-            "Distance": f"{dist:+.2f}%" if dist is not None else "—",
-            "Type": alert_type,
-            "Statut": status,
-            "Notes": item.get("notes", "") or "",
+            "Action": f"{d['item'].get('name', ticker)} ({ticker})",
+            "Cours": f"{current:.2f}" if current else "—",
+            "Cible perso": f"{target:.2f}" if target else "—",
+            "Distance cible": f"{dist:+.2f}%" if dist is not None else "—",
+            "RSI": f"{rsi:.0f}" if rsi else "—",
+            "vs MA200": f"{vs_ma200:+.1f}%" if vs_ma200 is not None else "—",
+            "Upside pros": f"{upside:+.1f}%" if upside is not None else "—",
+            "Consensus": reco or "—",
+            "Score /5": conviction["score"] if conviction else "—",
+            "Signal": conviction["label"] if conviction else "—",
         })
 
     df = pd.DataFrame(rows)
 
-    # Coloration selon statut
-    def highlight_status(val):
-        color = badge_color(val)
-        return f"color: {color}; font-weight: bold;"
+    def color_score(val):
+        try:
+            return f"color: {_score_color(int(val))}; font-weight: bold;"
+        except Exception:
+            return ""
 
-    styled = df.style.map(highlight_status, subset=["Statut"])
+    def color_signal(val):
+        mapping = {
+            "Zone d'achat forte": "color: #27ae60; font-weight: bold;",
+            "Zone interessante": "color: #2980b9; font-weight: bold;",
+            "A surveiller": "color: #e67e22;",
+            "Attendre": "color: #95a5a6;",
+        }
+        return mapping.get(val, "")
+
+    styled = df.style.map(color_score, subset=["Score /5"]).map(color_signal, subset=["Signal"])
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
+    # --- Detail par action ---
+    st.subheader("Detail par action")
+    ticker_labels = [f"{d['item'].get('name', d['item']['ticker'])} ({d['item']['ticker']})" for d in stock_data]
+    selected_label = st.selectbox("Voir le detail de :", ticker_labels)
+    selected_idx = ticker_labels.index(selected_label)
+    d = stock_data[selected_idx]
+    conviction = d["conviction"]
+    analyst = d["analyst"]
+    tech = d["tech"]
+
+    if conviction:
+        col_score, col_fund = st.columns([1, 2])
+
+        with col_score:
+            st.markdown(
+                f"<div style='background:{conviction['color']};color:white;padding:16px;"
+                f"border-radius:8px;text-align:center;'>"
+                f"<div style='font-size:36px;font-weight:bold;'>{conviction['score']}/5</div>"
+                f"<div style='font-size:14px;margin-top:4px;'>{conviction['label']}</div>"
+                f"<div style='font-size:20px;margin-top:8px;letter-spacing:4px;'>"
+                f"{_score_stars(conviction['score'])}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("")
+            st.markdown("**Les 5 criteres :**")
+            for criterion in conviction["criteria"]:
+                icon = "✅" if criterion["ok"] else "❌"
+                st.markdown(f"{icon} {criterion['label']}")
+
+        with col_fund:
+            st.markdown("**Analystes**")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Objectif moyen", f"{analyst.get('target_mean', '—'):.2f}" if analyst.get("target_mean") else "—")
+            c2.metric("Upside", f"{analyst.get('upside_pct', 0):+.1f}%" if analyst.get("upside_pct") is not None else "—")
+            c3.metric("Nb analystes", analyst.get("nb_analysts") or "—")
+
+            c4, c5 = st.columns(2)
+            c4.metric("Fourchette", f"{analyst.get('target_low', '—'):.0f} – {analyst.get('target_high', '—'):.0f}"
+                      if analyst.get("target_low") and analyst.get("target_high") else "—")
+            c5.metric("Consensus", (analyst.get("recommendation") or "—").replace("_", " ").title())
+
+            st.markdown("**Fondamentaux**")
+            c6, c7, c8, c9 = st.columns(4)
+            c6.metric("P/E", analyst.get("pe_ratio") or "—")
+            c7.metric("ROE", f"{analyst.get('roe'):.1f}%" if analyst.get("roe") else "—")
+            c8.metric("Marge nette", f"{analyst.get('profit_margin'):.1f}%" if analyst.get("profit_margin") else "—")
+            c9.metric("Croiss. CA", f"{analyst.get('revenue_growth'):+.1f}%" if analyst.get("revenue_growth") is not None else "—")
+
+            st.markdown("**Technique**")
+            c10, c11, c12, c13 = st.columns(4)
+            rsi = tech.get("rsi")
+            c10.metric("RSI 14j", f"{rsi:.0f}" if rsi else "—",
+                       delta="survendu" if rsi and rsi < 35 else ("surachat" if rsi and rsi > 70 else None))
+            c11.metric("MA50", f"{tech.get('ma50', '—'):.0f}" if tech.get("ma50") else "—")
+            c12.metric("MA200", f"{tech.get('ma200', '—'):.0f}" if tech.get("ma200") else "—",
+                       delta=f"{tech.get('pct_from_ma200', 0):+.1f}%" if tech.get("pct_from_ma200") is not None else None)
+            c13.metric("52w range",
+                       f"{tech.get('week52_low', '—'):.0f}–{tech.get('week52_high', '—'):.0f}"
+                       if tech.get("week52_low") and tech.get("week52_high") else "—")
+
+        if d["item"].get("notes"):
+            st.info(f"**Votre these :** {d['item']['notes']}")
+
+
+# ---------------------------------------------------------------------------
+# Page : Historique
+# ---------------------------------------------------------------------------
 
 def page_history(config: dict) -> None:
     st.title("Historique d'une action")
@@ -225,57 +320,107 @@ def page_history(config: dict) -> None:
 
     df = pd.DataFrame(history).sort_values("date")
     df["date"] = pd.to_datetime(df["date"])
+    closes = df["close_price"]
 
-    fig = go.Figure()
+    # Calcul des moyennes mobiles depuis l'historique en base
+    df["ma50"] = closes.rolling(50).mean()
+    df["ma200"] = closes.rolling(200).mean()
 
-    # Courbe du cours de cloture
+    # Calcul RSI pour le sous-graphe
+    delta = closes.diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
+    rs = gain / loss.replace(0, float("inf"))
+    df["rsi"] = 100 - (100 / (1 + rs))
+
+    # --- Graphique principal + RSI ---
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.72, 0.28],
+        vertical_spacing=0.04,
+        subplot_titles=[f"{item['name']} ({ticker})", "RSI 14j"],
+    )
+
+    # Cours de cloture
     fig.add_trace(go.Scatter(
         x=df["date"], y=df["close_price"],
-        mode="lines",
-        name="Cours de cloture",
+        mode="lines", name="Cours",
         line={"color": "#2980b9", "width": 2},
-        hovertemplate=(
-            "<b>%{x|%d/%m/%Y}</b><br>"
-            "Cloture : %{y:.2f}<br>"
-            "<extra></extra>"
-        ),
-    ))
+        hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Cloture : %{y:.2f}<extra></extra>",
+    ), row=1, col=1)
 
-    # Zone coloree verte si cours sous la cible (alert_type=below)
+    # MA50
+    if df["ma50"].notna().any():
+        fig.add_trace(go.Scatter(
+            x=df["date"], y=df["ma50"],
+            mode="lines", name="MA50",
+            line={"color": "#e67e22", "width": 1.5, "dash": "dot"},
+            hovertemplate="MA50 : %{y:.2f}<extra></extra>",
+        ), row=1, col=1)
+
+    # MA200
+    if df["ma200"].notna().any():
+        fig.add_trace(go.Scatter(
+            x=df["date"], y=df["ma200"],
+            mode="lines", name="MA200",
+            line={"color": "#c0392b", "width": 1.5, "dash": "dash"},
+            hovertemplate="MA200 : %{y:.2f}<extra></extra>",
+        ), row=1, col=1)
+
+    # Ligne cible perso
     if target:
         fig.add_hline(
-            y=target,
-            line_dash="dot",
-            line_color="red",
+            y=target, line_dash="dot", line_color="#8e44ad", line_width=1.5,
             annotation_text=f"Cible : {target:.2f}",
             annotation_position="bottom right",
+            row=1, col=1,
         )
         if alert_type == "below":
             fig.add_hrect(
-                y0=df["close_price"].min() * 0.98,
-                y1=target,
-                fillcolor="rgba(39,174,96,0.1)",
-                line_width=0,
+                y0=closes.min() * 0.98, y1=target,
+                fillcolor="rgba(39,174,96,0.08)", line_width=0,
                 annotation_text="Zone d'opportunite",
                 annotation_position="top left",
+                row=1, col=1,
             )
 
+    # RSI
+    fig.add_trace(go.Scatter(
+        x=df["date"], y=df["rsi"],
+        mode="lines", name="RSI",
+        line={"color": "#8e44ad", "width": 1.5},
+        hovertemplate="RSI : %{y:.1f}<extra></extra>",
+        showlegend=False,
+    ), row=2, col=1)
+
+    # Zones RSI
+    fig.add_hrect(y0=70, y1=100, fillcolor="rgba(192,57,43,0.08)", line_width=0, row=2, col=1)
+    fig.add_hrect(y0=0, y1=30, fillcolor="rgba(39,174,96,0.08)", line_width=0, row=2, col=1)
+    fig.add_hline(y=70, line_dash="dot", line_color="#c0392b", line_width=1, row=2, col=1)
+    fig.add_hline(y=30, line_dash="dot", line_color="#27ae60", line_width=1, row=2, col=1)
+
     fig.update_layout(
-        title=f"{item['name']} ({ticker})",
-        xaxis_title="Date",
-        yaxis_title=f"Cours ({item.get('currency','EUR')})",
         hovermode="x unified",
         template="plotly_white",
-        height=500,
+        height=600,
+        legend={"orientation": "h", "y": 1.02},
+        margin={"t": 60},
     )
+    fig.update_yaxes(title_text="Cours (EUR)", row=1, col=1)
+    fig.update_yaxes(title_text="RSI", range=[0, 100], row=2, col=1)
+
     st.plotly_chart(fig, use_container_width=True)
 
-    # Tableau OHLCV
     with st.expander("Donnees brutes OHLCV"):
         display_df = df[["date", "open_price", "close_price", "high_price", "low_price", "volume"]].copy()
         display_df.columns = ["Date", "Ouverture", "Cloture", "Haut", "Bas", "Volume"]
         st.dataframe(display_df.sort_values("Date", ascending=False), hide_index=True)
 
+
+# ---------------------------------------------------------------------------
+# Page : Alertes
+# ---------------------------------------------------------------------------
 
 def page_alerts() -> None:
     st.title("Historique des alertes")
@@ -288,24 +433,22 @@ def page_alerts() -> None:
     df = pd.DataFrame(alerts)
     df["triggered_at"] = pd.to_datetime(df["triggered_at"]).dt.strftime("%d/%m/%Y %H:%M")
     df = df.rename(columns={
-        "ticker": "Ticker",
-        "triggered_at": "Date declenchement",
-        "current_price": "Cours",
-        "target_price": "Cible",
-        "alert_type": "Type",
-        "notification_sent": "Notifie",
-        "channel": "Canal",
+        "ticker": "Ticker", "triggered_at": "Date", "current_price": "Cours",
+        "target_price": "Cible", "alert_type": "Type",
+        "notification_sent": "Notifie", "channel": "Canal",
     })
-    cols = ["Ticker", "Date declenchement", "Cours", "Cible", "Type", "Canal", "Notifie"]
-    st.dataframe(df[cols], use_container_width=True, hide_index=True)
+    st.dataframe(df[["Ticker", "Date", "Cours", "Cible", "Type", "Canal", "Notifie"]],
+                 use_container_width=True, hide_index=True)
 
+
+# ---------------------------------------------------------------------------
+# Page : Watchlist & Config
+# ---------------------------------------------------------------------------
 
 def page_watchlist_config(config: dict) -> None:
     st.title("Watchlist & Configuration")
 
     watchlist = config.get("watchlist", [])
-
-    # --- Afficher / Modifier la watchlist ---
     st.subheader("Actions surveillees")
 
     to_remove = []
@@ -314,26 +457,16 @@ def page_watchlist_config(config: dict) -> None:
             col1, col2 = st.columns(2)
             with col1:
                 new_name = st.text_input("Nom", value=item.get("name", ""), key=f"name_{i}")
-                new_target = st.number_input(
-                    "Prix cible", value=float(item.get("target_price", 0)), key=f"target_{i}"
-                )
+                new_target = st.number_input("Prix cible", value=float(item.get("target_price", 0)), key=f"target_{i}")
             with col2:
-                new_type = st.selectbox(
-                    "Type d'alerte",
-                    ["below", "above"],
-                    index=0 if item.get("alert_type") == "below" else 1,
-                    key=f"type_{i}",
-                )
-                new_notes = st.text_input("Notes", value=item.get("notes", "") or "", key=f"notes_{i}")
-
-            col_save, col_del = st.columns([1, 1])
+                new_type = st.selectbox("Type d'alerte", ["below", "above"],
+                                        index=0 if item.get("alert_type") == "below" else 1, key=f"type_{i}")
+                new_notes = st.text_input("Notes / These", value=item.get("notes", "") or "", key=f"notes_{i}")
+            col_save, col_del = st.columns(2)
             with col_save:
                 if st.button("Sauvegarder", key=f"save_{i}"):
-                    watchlist[i]["name"] = new_name
-                    watchlist[i]["target_price"] = new_target
-                    watchlist[i]["alert_type"] = new_type
-                    watchlist[i]["notes"] = new_notes
-                    config["watchlist"] = watchlist
+                    watchlist[i].update({"name": new_name, "target_price": new_target,
+                                         "alert_type": new_type, "notes": new_notes})
                     save_config(config)
                     st.success("Sauvegarde!")
             with col_del:
@@ -345,7 +478,6 @@ def page_watchlist_config(config: dict) -> None:
         save_config(config)
         st.rerun()
 
-    # --- Ajouter une action ---
     st.subheader("Ajouter une action")
     with st.form("add_stock"):
         col1, col2 = st.columns(2)
@@ -355,109 +487,88 @@ def page_watchlist_config(config: dict) -> None:
         with col2:
             new_target = st.number_input("Prix cible", min_value=0.01, value=100.0)
             new_type = st.selectbox("Type d'alerte", ["below", "above"])
-        new_notes = st.text_input("Notes (optionnel)")
-        submitted = st.form_submit_button("Ajouter")
-
-        if submitted and new_ticker:
-            config["watchlist"].append({
-                "ticker": new_ticker.strip().upper(),
-                "name": new_name.strip(),
-                "target_price": new_target,
-                "alert_type": new_type,
-                "notes": new_notes.strip(),
-            })
+        new_notes = st.text_input("Notes / These (optionnel)")
+        if st.form_submit_button("Ajouter") and new_ticker:
+            config["watchlist"].append({"ticker": new_ticker.strip().upper(), "name": new_name.strip(),
+                                         "target_price": new_target, "alert_type": new_type,
+                                         "notes": new_notes.strip()})
             save_config(config)
-            st.success(f"{new_ticker} ajoutee a la watchlist!")
+            st.success(f"{new_ticker} ajoutee!")
             st.rerun()
 
-    # --- Config notifications ---
     st.subheader("Notifications")
     with st.expander("Email (Gmail)"):
-        email_cfg = config.get("email", {})
-        enabled = st.checkbox("Activer email", value=email_cfg.get("enabled", False))
-        sender = st.text_input("Expediteur", value=email_cfg.get("sender", ""))
-        password = st.text_input("Mot de passe d'application", value=email_cfg.get("password", ""), type="password")
-        recipient = st.text_input("Destinataire", value=email_cfg.get("recipient", ""))
+        e = config.get("email", {})
+        enabled = st.checkbox("Activer", value=e.get("enabled", False))
+        sender = st.text_input("Expediteur", value=e.get("sender", ""))
+        password = st.text_input("Mot de passe d'application", value=e.get("password", ""), type="password")
+        recipient = st.text_input("Destinataire", value=e.get("recipient", ""))
         if st.button("Sauvegarder config email"):
-            config["email"] = {
-                "enabled": enabled, "sender": sender, "password": password,
-                "recipient": recipient,
-                "smtp_host": email_cfg.get("smtp_host", "smtp.gmail.com"),
-                "smtp_port": email_cfg.get("smtp_port", 587),
-            }
+            config["email"] = {"enabled": enabled, "sender": sender, "password": password,
+                                "recipient": recipient, "smtp_host": e.get("smtp_host", "smtp.gmail.com"),
+                                "smtp_port": e.get("smtp_port", 587)}
             save_config(config)
-            st.success("Config email sauvegardee!")
+            st.success("Sauvegarde!")
 
     with st.expander("Telegram"):
-        tg_cfg = config.get("telegram", {})
-        tg_enabled = st.checkbox("Activer Telegram", value=tg_cfg.get("enabled", False))
-        bot_token = st.text_input("Token du bot", value=tg_cfg.get("bot_token", ""), type="password")
-        chat_id = st.text_input("Chat ID", value=tg_cfg.get("chat_id", ""))
+        t = config.get("telegram", {})
+        tg_enabled = st.checkbox("Activer Telegram", value=t.get("enabled", False))
+        bot_token = st.text_input("Token du bot", value=t.get("bot_token", ""), type="password")
+        chat_id = st.text_input("Chat ID", value=t.get("chat_id", ""))
         if st.button("Sauvegarder config Telegram"):
-            config["telegram"] = {
-                "enabled": tg_enabled,
-                "bot_token": bot_token,
-                "chat_id": chat_id,
-            }
+            config["telegram"] = {"enabled": tg_enabled, "bot_token": bot_token, "chat_id": chat_id}
             save_config(config)
-            st.success("Config Telegram sauvegardee!")
+            st.success("Sauvegarde!")
 
-    # --- Schedule ---
     st.subheader("Planification")
-    schedule_cfg = config.get("schedule", {})
-    sched_time = st.text_input("Heure du check (HH:MM)", value=schedule_cfg.get("time", "09:00"))
-    sched_tz = st.text_input("Fuseau horaire", value=schedule_cfg.get("timezone", "Europe/Paris"))
+    s = config.get("schedule", {})
+    sched_time = st.text_input("Heure du check (HH:MM)", value=s.get("time", "09:00"))
+    sched_tz = st.text_input("Fuseau horaire", value=s.get("timezone", "Europe/Paris"))
     if st.button("Sauvegarder planification"):
         config["schedule"] = {"time": sched_time, "timezone": sched_tz}
         save_config(config)
-        st.success("Planification sauvegardee! Redemarrez l'application pour appliquer.")
+        st.success("Sauvegarde! Redemarrez pour appliquer.")
 
+
+# ---------------------------------------------------------------------------
+# Page : Suggestions
+# ---------------------------------------------------------------------------
 
 def page_suggestions(config: dict) -> None:
     st.title("Suggestions")
-    st.markdown(
-        "Actions europeennes eligibles PEA selectionnees avec leur these d'investissement. "
-        "Cliquez sur **Ajouter a ma watchlist** pour les surveiller."
-    )
+    st.markdown("Actions europeennes eligibles PEA avec their these d'investissement.")
 
     watchlist_tickers = {item["ticker"] for item in config.get("watchlist", [])}
-
     risk_colors = {"low": "#27ae60", "medium": "#e67e22", "high": "#c0392b"}
-    risk_labels = {"low": "Faible", "medium": "Moyen", "high": "Eleve"}
+    risk_labels = {"low": "Risque faible", "medium": "Risque moyen", "high": "Risque eleve"}
 
     for suggestion in SUGGESTIONS:
         already_in = suggestion["ticker"] in watchlist_tickers
-        with st.container():
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                risk_color = risk_colors.get(suggestion["risk"], "#999")
-                risk_label = risk_labels.get(suggestion["risk"], suggestion["risk"])
-                st.markdown(
-                    f"**{suggestion['name']}** ({suggestion['ticker']}) &nbsp; "
-                    f"<span style='background:{risk_color};color:white;padding:2px 8px;"
-                    f"border-radius:4px;font-size:12px;'>{risk_label}</span> &nbsp; "
-                    f"*{suggestion['sector']}*",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(f"**These :** {suggestion['thesis']}")
-                st.markdown(f"**Pourquoi maintenant :** {suggestion['why_now']}")
-                st.markdown(f"Prix de surveillance suggere : **{suggestion['watch_price']:.2f} EUR**")
-            with col2:
-                if already_in:
-                    st.markdown("✓ Dans la watchlist")
-                else:
-                    if st.button("Ajouter", key=f"add_{suggestion['ticker']}"):
-                        config["watchlist"].append({
-                            "ticker": suggestion["ticker"],
-                            "name": suggestion["name"],
-                            "target_price": suggestion["watch_price"],
-                            "alert_type": "below",
-                            "notes": suggestion["thesis"],
-                        })
-                        save_config(config)
-                        st.success(f"{suggestion['name']} ajoutee!")
-                        st.rerun()
-            st.divider()
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            rc = risk_colors.get(suggestion["risk"], "#999")
+            rl = risk_labels.get(suggestion["risk"], suggestion["risk"])
+            st.markdown(
+                f"**{suggestion['name']}** ({suggestion['ticker']}) &nbsp;"
+                f"<span style='background:{rc};color:white;padding:2px 8px;"
+                f"border-radius:4px;font-size:12px;'>{rl}</span> &nbsp;"
+                f"*{suggestion['sector']}*",
+                unsafe_allow_html=True,
+            )
+            st.markdown(f"**These :** {suggestion['thesis']}")
+            st.markdown(f"**Pourquoi maintenant :** {suggestion['why_now']}")
+            st.markdown(f"Prix de surveillance suggere : **{suggestion['watch_price']:.2f} EUR**")
+        with col2:
+            if already_in:
+                st.markdown("✓ Dans la watchlist")
+            elif st.button("Ajouter", key=f"add_{suggestion['ticker']}"):
+                config["watchlist"].append({"ticker": suggestion["ticker"], "name": suggestion["name"],
+                                             "target_price": suggestion["watch_price"], "alert_type": "below",
+                                             "notes": suggestion["thesis"]})
+                save_config(config)
+                st.success(f"{suggestion['name']} ajoutee!")
+                st.rerun()
+        st.divider()
 
 
 # ---------------------------------------------------------------------------
@@ -465,12 +576,7 @@ def page_suggestions(config: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    st.set_page_config(
-        page_title="Stock Monitor",
-        page_icon="📈",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
+    st.set_page_config(page_title="Stock Monitor", page_icon="📈", layout="wide")
 
     init_db()
     config = load_config()
@@ -478,25 +584,17 @@ def main() -> None:
     with st.sidebar:
         st.title("📈 Stock Monitor")
         st.markdown("---")
-        page = st.radio(
-            "Navigation",
-            [
-                "Vue d'ensemble",
-                "Historique",
-                "Alertes",
-                "Watchlist & Config",
-                "Suggestions",
-            ],
-            label_visibility="collapsed",
-        )
+        page = st.radio("Navigation", [
+            "Vue d'ensemble", "Historique", "Alertes", "Watchlist & Config", "Suggestions",
+        ], label_visibility="collapsed")
         st.markdown("---")
-        st.caption("Surveillance automatique de cours boursiers")
-
-        if st.button("Lancer une verification maintenant", type="primary"):
+        if st.button("Lancer une verification", type="primary"):
             with st.spinner("Verification en cours..."):
                 from app.scheduler import run_daily_check
                 run_daily_check()
+            st.cache_data.clear()
             st.success("Verification terminee!")
+        st.caption("Donnees techniques mises en cache 1h.")
 
     if page == "Vue d'ensemble":
         page_overview(config)
