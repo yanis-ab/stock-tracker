@@ -1,5 +1,6 @@
 """
-database.py — Modeles SQLAlchemy et operations sur la base de donnees SQLite.
+database.py — Modeles SQLAlchemy et operations sur la base de donnees.
+Supporte SQLite (local) et PostgreSQL (cloud via DATABASE_URL).
 """
 
 import os
@@ -15,10 +16,21 @@ from sqlalchemy.orm import DeclarativeBase, Session
 
 logger = logging.getLogger(__name__)
 
-# Chemin vers la base de donnees (relatif a la racine du projet)
 _BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = _BASE_DIR / "data" / "stock_monitor.db"
-DB_URL = f"sqlite:///{DB_PATH}"
+
+# PostgreSQL en cloud (DATABASE_URL), SQLite en local
+_db_url = os.environ.get("DATABASE_URL", "")
+if _db_url:
+    # Supabase/Heroku utilisent postgres://, SQLAlchemy requiert postgresql://
+    if _db_url.startswith("postgres://"):
+        _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+    DB_URL = _db_url
+    logger.info("Base de donnees : PostgreSQL (cloud)")
+else:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DB_URL = f"sqlite:///{DB_PATH}"
+    logger.info("Base de donnees : SQLite (local)")
 
 engine = create_engine(DB_URL, echo=False)
 

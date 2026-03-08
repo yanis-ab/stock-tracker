@@ -16,8 +16,33 @@ _CONFIG_PATH = _BASE_DIR / "config.yaml"
 
 
 def load_config() -> dict:
+    """
+    Charge config.yaml et superpose les variables d'environnement.
+    Les env vars ont priorite sur le fichier YAML (pour le deploiement cloud).
+    """
+    import os
     with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+
+    # --- Email ---
+    email = config.setdefault("email", {})
+    if os.environ.get("EMAIL_SENDER"):
+        email["sender"] = os.environ["EMAIL_SENDER"]
+        email["enabled"] = True
+    if os.environ.get("EMAIL_PASSWORD"):
+        email["password"] = os.environ["EMAIL_PASSWORD"]
+    if os.environ.get("EMAIL_RECIPIENT"):
+        email["recipient"] = os.environ["EMAIL_RECIPIENT"]
+
+    # --- Telegram ---
+    telegram = config.setdefault("telegram", {})
+    if os.environ.get("TELEGRAM_BOT_TOKEN"):
+        telegram["bot_token"] = os.environ["TELEGRAM_BOT_TOKEN"]
+        telegram["enabled"] = True
+    if os.environ.get("TELEGRAM_CHAT_ID"):
+        telegram["chat_id"] = os.environ["TELEGRAM_CHAT_ID"]
+
+    return config
 
 
 def run_daily_check() -> None:

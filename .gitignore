@@ -15,8 +15,8 @@ logs/
 # Secrets (ne jamais commiter config.yaml avec credentials reels)
 # config.yaml est commite avec des valeurs d'exemple — adapter avant utilisation
 
-# Streamlit
-.streamlit/
+# Streamlit (secrets reels — ne jamais commiter)
+.streamlit/secrets.toml
 
 # OS
 .DS_Store

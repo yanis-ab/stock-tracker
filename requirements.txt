@@ -6,3 +6,4 @@ apscheduler>=3.10
 pyyaml>=6.0
 python-telegram-bot>=20.0
 pandas>=2.0
+psycopg2-binary>=2.9

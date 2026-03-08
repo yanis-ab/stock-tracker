@@ -1,0 +1,35 @@
+name: Daily Stock Check
+
+on:
+  schedule:
+    # 8h UTC = 9h Paris (heure d'hiver) / 10h Paris (heure d'ete)
+    # Ajuste a 7h UTC en ete si tu veux toujours 9h Paris
+    - cron: "0 8 * * 1-5"   # lundi-vendredi uniquement
+  workflow_dispatch:          # permet de lancer manuellement depuis GitHub
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily check
+        run: python run_check.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

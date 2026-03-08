@@ -3,6 +3,7 @@ streamlit_app.py — Dashboard web local pour Stock Monitor.
 Lancer avec : streamlit run dashboard/streamlit_app.py
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -13,6 +14,24 @@ import yaml
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+
+
+def _inject_streamlit_secrets() -> None:
+    """
+    Sur Streamlit Community Cloud, injecte les secrets dans les variables
+    d'environnement pour que database.py et scheduler.py puissent les lire.
+    """
+    try:
+        secrets = st.secrets
+        for key in ["DATABASE_URL", "EMAIL_SENDER", "EMAIL_PASSWORD",
+                    "EMAIL_RECIPIENT", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]:
+            if key in secrets and not os.environ.get(key):
+                os.environ[key] = secrets[key]
+    except Exception:
+        pass  # Pas de secrets configures, mode local
+
+
+_inject_streamlit_secrets()
 
 from app.database import (
     init_db, get_all_latest_prices, get_price_history, get_all_alerts,
