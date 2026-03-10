@@ -33,6 +33,7 @@ from app.database import init_db, get_all_latest_prices, get_price_history, get_
 from app.analyzer import compute_distance_to_target, compute_conviction_score
 from app.fetcher import fetch_technicals, fetch_analyst_data, fetch_fundamentals
 from app.valuation import compute_intrinsic_value
+from app.quality import compute_quality_score
 
 # ---------------------------------------------------------------------------
 # Config
@@ -121,8 +122,19 @@ def _compute_valuation_cached(ticker: str, current: float, margin: float) -> dic
 
 
 def _score_color(score: int) -> str:
-    return {5: "#27ae60", 4: "#27ae60", 3: "#2980b9",
-            2: "#e67e22", 1: "#e74c3c", 0: "#95a5a6"}.get(score, "#95a5a6")
+    # Score sur 6 (6 criteres de conviction)
+    return {6: "#27ae60", 5: "#27ae60", 4: "#2980b9",
+            3: "#e67e22", 2: "#e67e22", 1: "#e74c3c", 0: "#95a5a6"}.get(score, "#95a5a6")
+
+
+def _quality_badge(score: int) -> str:
+    """Retourne un emoji badge selon le score qualite (0-4)."""
+    if score >= 3:
+        return "🟢"
+    elif score == 2:
+        return "🟡"
+    else:
+        return "🔴"
 
 
 def _confidence_color(conf: str) -> str:
@@ -171,6 +183,7 @@ def page_overview(config: dict) -> None:
 
         tech = _fetch_technicals_cached(ticker)
         analyst = _fetch_analyst_cached(ticker)
+        fundamentals = _fetch_fundamentals_cached(ticker)
 
         # Prix cible : override manuel ou calcule automatiquement
         target_override = item.get("target_override")
@@ -195,13 +208,15 @@ def page_overview(config: dict) -> None:
         target = valuation.get("target_price")
 
         conviction = None
+        quality = compute_quality_score(fundamentals)
         if current and target:
             conviction = compute_conviction_score(current, target, alert_type, tech, analyst)
 
         stock_data.append({
             "item": item, "current": current, "target": target,
             "valuation": valuation, "alert_type": alert_type,
-            "tech": tech, "analyst": analyst, "conviction": conviction,
+            "tech": tech, "analyst": analyst, "fundamentals": fundamentals,
+            "conviction": conviction, "quality": quality,
         })
         progress.progress((i + 1) / len(watchlist), text=f"Analyse {ticker}...")
 
@@ -230,17 +245,18 @@ def page_overview(config: dict) -> None:
         conf = val.get("confidence", "—")
         signal = val.get("signal", "—")
 
+        quality = d["quality"]
         rows.append({
             "Action":         f"{d['item'].get('name', ticker)} ({ticker})",
             "Cours":          f"{current:.2f}" if current else "—",
             "Fair Value":     f"{fair:.2f}" if fair else "—",
             "Cible achat":    f"{target:.2f}" if target else "—",
             "Upside/FV":      f"{upside_fair:+.1f}%" if upside_fair is not None else "—",
-            "Confiance":      conf,
             "Signal":         signal,
             "RSI":            f"{rsi:.0f}" if rsi else "—",
             "vs MA200":       f"{vs_ma200:+.1f}%" if vs_ma200 is not None else "—",
-            "Score /5":       conviction["score"] if conviction else "—",
+            "Qualite":        f"{_quality_badge(quality['score'])} {quality['label']}",
+            "Score /6":       conviction["score"] if conviction else "—",
             "Zone":           conviction["label"] if conviction else "—",
         })
 
@@ -266,7 +282,7 @@ def page_overview(config: dict) -> None:
         return m.get(val, "")
 
     styled = (df.style
-              .map(color_score, subset=["Score /5"])
+              .map(color_score, subset=["Score /6"])
               .map(color_signal, subset=["Signal"])
               .map(color_zone, subset=["Zone"]))
     st.dataframe(styled, use_container_width=True, hide_index=True)
@@ -284,25 +300,42 @@ def page_overview(config: dict) -> None:
     analyst = d["analyst"]
     tech = d["tech"]
     val = d["valuation"]
+    quality = d["quality"]
 
-    # --- Score de conviction ---
+    # --- Score de conviction + qualite ---
     if conviction:
-        col_score, col_val, col_fund = st.columns([1, 1, 2])
+        col_score, col_quality, col_val, col_fund = st.columns([1, 1, 1, 2])
 
         with col_score:
             st.markdown(
                 f"<div style='background:{conviction['color']};color:white;padding:16px;"
                 f"border-radius:8px;text-align:center;'>"
-                f"<div style='font-size:36px;font-weight:bold;'>{conviction['score']}/5</div>"
+                f"<div style='font-size:36px;font-weight:bold;'>{conviction['score']}/6</div>"
                 f"<div style='font-size:14px;margin-top:4px;'>{conviction['label']}</div>"
                 f"<div style='font-size:20px;margin-top:8px;letter-spacing:4px;'>"
-                f"{_score_stars(conviction['score'])}</div>"
+                f"{_score_stars(min(conviction['score'], 6))}</div>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
             st.markdown("")
-            st.markdown("**Les 5 criteres GARP :**")
+            st.markdown("**Les 6 criteres QGARP :**")
             for criterion in conviction["criteria"]:
+                icon = "✅" if criterion["ok"] else "❌"
+                st.markdown(f"{icon} {criterion['label']}")
+
+        with col_quality:
+            st.markdown(
+                f"<div style='background:{quality['color']};color:white;padding:16px;"
+                f"border-radius:8px;text-align:center;'>"
+                f"<div style='font-size:36px;font-weight:bold;'>{quality['score']}/4</div>"
+                f"<div style='font-size:14px;margin-top:4px;'>Qualite / Moat</div>"
+                f"<div style='font-size:12px;margin-top:4px;'>{quality['label']}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("")
+            st.markdown("**Filtres qualite :**")
+            for criterion in quality["criteria"]:
                 icon = "✅" if criterion["ok"] else "❌"
                 st.markdown(f"{icon} {criterion['label']}")
 
@@ -361,6 +394,13 @@ def page_overview(config: dict) -> None:
 
         # --- Fondamentaux & technique ---
         with col_fund:
+            peg = analyst.get("peg_ratio")
+            if peg:
+                st.metric("PEG Ratio", f"{peg:.2f}",
+                          delta="attractif" if peg <= 1.0 else ("raisonnable" if peg <= 1.5 else "eleve"),
+                          delta_color="normal" if peg <= 1.5 else "inverse")
+                st.markdown("")
+
             st.markdown("**Analystes Wall Street**")
             c1, c2, c3 = st.columns(3)
             c1.metric("Objectif moyen",

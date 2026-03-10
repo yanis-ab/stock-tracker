@@ -31,11 +31,13 @@ MAX_GROWTH_RATE = 0.15           # 15% — plafond croissance DCF (prudence)
 MAX_GRAHAM_GROWTH = 20.0         # 20% — plafond formule Graham
 
 # Poids de base par methode (normalises sur les methodes disponibles)
+# Ajustement QGARP : favoriser le DCF (cash reels) et reduire Graham Number
+# (trop penalisant pour les entreprises tech/croissance a faible book value)
 BASE_WEIGHTS = {
-    "graham_number":  0.15,  # conservateur, base sur les actifs
-    "graham_growth":  0.25,  # integre la croissance attendue
-    "dcf":            0.30,  # methode roi (cash-flows actualises)
-    "analyst":        0.30,  # sagesse collective du marche
+    "graham_number":  0.10,  # reduit — inadapte aux entreprises a actifs immateriels
+    "graham_growth":  0.20,  # valeur de croissance ajustee
+    "dcf":            0.40,  # methode principale — seule qui valorise la croissance future
+    "analyst":        0.30,  # consensus marche — signal complementaire
 }
 
 

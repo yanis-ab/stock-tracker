@@ -179,6 +179,7 @@ def fetch_analyst_data(ticker: str) -> dict:
         "target_mean": None, "target_low": None, "target_high": None,
         "upside_pct": None, "recommendation": None, "nb_analysts": None,
         "pe_ratio": None, "roe": None, "profit_margin": None, "revenue_growth": None,
+        "peg_ratio": None,
     }
     try:
         info = yf.Ticker(ticker).info
@@ -206,6 +207,9 @@ def fetch_analyst_data(ticker: str) -> dict:
 
         rg = info.get("revenueGrowth")
         result["revenue_growth"] = round(rg * 100, 1) if rg else None
+
+        peg = info.get("pegRatio")
+        result["peg_ratio"] = round(peg, 2) if peg else None
 
     except Exception as exc:
         logger.error("Erreur donnees analystes %s : %s", ticker, exc)
@@ -258,6 +262,24 @@ def fetch_fundamentals(ticker: str) -> dict:
 
         # Objectif prix analystes
         result["analyst_target_mean"] = info.get("targetMeanPrice")
+
+        # --- Donnees qualite / Moat ---
+        # ROE (Return on Equity) — proxy du moat selon Buffett
+        result["roe"] = info.get("returnOnEquity")  # decimal ex: 0.32 = 32%
+
+        # Marge nette — pricing power
+        result["profit_margin"] = info.get("profitMargins")  # decimal
+
+        # Benefice net — pour le ratio FCF/Net Income (qualite des benefices)
+        result["net_income"] = info.get("netIncomeToCommon")
+
+        # Levier financier — solidite du bilan
+        # yfinance retourne debtToEquity en % (ex: 50.5 = 0.505x D/E ratio)
+        result["debt_to_equity"] = info.get("debtToEquity")
+
+        # PEG Ratio (Peter Lynch) — P/E divise par taux de croissance
+        # PEG <= 1.5 = action raisonnablement valorisee compte tenu de sa croissance
+        result["peg_ratio"] = info.get("pegRatio")
 
     except Exception as exc:
         logger.error("Erreur fondamentaux %s : %s", ticker, exc)

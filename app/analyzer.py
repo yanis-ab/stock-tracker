@@ -31,14 +31,15 @@ def compute_conviction_score(
     analyst_data: dict,
 ) -> dict:
     """
-    Calcule un score de conviction 0-5 pour une action (strategie GARP long terme).
+    Calcule un score de conviction 0-6 pour une action (strategie QGARP long terme).
 
-    Les 5 criteres :
-      1. Cours atteint le prix cible personnel
+    Les 6 criteres :
+      1. Cours sous le prix cible calcule (valeur intrinseque - marge securite)
       2. RSI < 40 (pression vendeuse, potentiel rebond)
       3. Cours sous la MA200 (decote sur tendance long terme)
       4. Upside analystes > 15% (les pros voient de la valeur)
       5. Consensus analystes = buy ou strong_buy
+      6. PEG Ratio <= 1.5 (Peter Lynch : croissance a un prix raisonnable)
 
     Retourne : {score, label, color, criteria}
     """
@@ -48,10 +49,10 @@ def compute_conviction_score(
     # 1. Cours dans la zone d'achat (valeur intrinseque - marge de securite)
     if alert_type == "below":
         ok = current_price < target_price
-        label = f"Cours sous le prix cible calcule ({target_price:.0f} €)"
+        label = f"Cours sous le prix cible calcule ({target_price:.0f} \u20ac)"
     else:
         ok = current_price > target_price
-        label = f"Cours au-dessus du prix cible calcule ({target_price:.0f} €)"
+        label = f"Cours au-dessus du prix cible calcule ({target_price:.0f} \u20ac)"
     if ok:
         score += 1
     criteria.append({"label": label, "ok": ok})
@@ -62,7 +63,7 @@ def compute_conviction_score(
         ok = rsi < 40
         if ok:
             score += 1
-        rsi_msg = "— survendu, pression baissière" if ok else "— pas encore survendu"
+        rsi_msg = "— survendu, pression baissi\u00e8re" if ok else "— pas encore survendu"
         criteria.append({
             "label": f"RSI {rsi:.0f} {rsi_msg}",
             "ok": ok,
@@ -117,12 +118,30 @@ def compute_conviction_score(
         "ok": ok,
     })
 
-    # Label et couleur
-    if score >= 4:
+    # 6. PEG Ratio <= 1.5 (Peter Lynch)
+    # PEG = P/E / taux_croissance_benefices
+    # PEG <= 1.0 : action bon marche par rapport a sa croissance
+    # PEG <= 1.5 : croissance a un prix raisonnable
+    # PEG >  2.0 : attention, croissance surevaluee
+    peg = analyst_data.get("peg_ratio")
+    if peg is not None and peg > 0:
+        ok = peg <= 1.5
+        if ok:
+            score += 1
+        note = "bon marche vs croissance" if peg <= 1.0 else ("raisonnable" if ok else "croissance surevaluee")
+        criteria.append({
+            "label": f"PEG Ratio {peg:.2f} — {note}",
+            "ok": ok,
+        })
+    else:
+        criteria.append({"label": "PEG Ratio — donn\u00e9e indisponible", "ok": False})
+
+    # Label et couleur (seuils adaptes au score sur 6)
+    if score >= 5:
         label, color = "Zone d'achat forte", "#27ae60"
-    elif score == 3:
+    elif score == 4:
         label, color = "Zone interessante", "#2980b9"
-    elif score == 2:
+    elif score in (2, 3):
         label, color = "A surveiller", "#e67e22"
     else:
         label, color = "Attendre", "#95a5a6"
