@@ -1,5 +1,9 @@
 """
 analyzer.py — Detection des alertes et score de conviction GARP.
+
+Le prix cible n'est plus fixe manuellement : il est calcule a partir
+de la valeur intrinseque de l'entreprise (module valuation.py).
+Un prix cible manuel peut toutefois etre force via 'target_override' dans config.yaml.
 """
 
 import logging
@@ -41,13 +45,13 @@ def compute_conviction_score(
     criteria = []
     score = 0
 
-    # 1. Prix cible personnel atteint
+    # 1. Cours dans la zone d'achat (valeur intrinseque - marge de securite)
     if alert_type == "below":
         ok = current_price < target_price
-        label = f"Cours sous la cible perso ({target_price:.0f})"
+        label = f"Cours sous le prix cible calcule ({target_price:.0f} €)"
     else:
         ok = current_price > target_price
-        label = f"Cours au-dessus de la cible perso ({target_price:.0f})"
+        label = f"Cours au-dessus du prix cible calcule ({target_price:.0f} €)"
     if ok:
         score += 1
     criteria.append({"label": label, "ok": ok})
@@ -129,16 +133,23 @@ def compute_conviction_score(
 def check_alerts(watchlist: list[dict], prices: list[dict]) -> list[dict]:
     """
     Analyse les cours et retourne la liste des alertes a declencher.
+
+    Le prix cible est calcule intelligemment via la valeur intrinseque
+    (Graham Number, Graham Growth, DCF, consensus analystes).
+    Un 'target_override' dans config.yaml permet de forcer un prix manuel.
     """
+    from app.fetcher import fetch_fundamentals
+    from app.valuation import compute_intrinsic_value
+
     price_by_ticker: dict[str, dict] = {p["ticker"]: p for p in prices}
     alerts_to_send = []
 
     for item in watchlist:
         ticker = item.get("ticker")
-        target = item.get("target_price")
         alert_type = item.get("alert_type", "below")
+        margin = item.get("margin_of_safety", 0.20)
 
-        if not ticker or target is None:
+        if not ticker:
             logger.warning("Item watchlist invalide : %s", item)
             continue
 
@@ -151,12 +162,35 @@ def check_alerts(watchlist: list[dict], prices: list[dict]) -> list[dict]:
         if current is None or current == 0:
             continue
 
+        # --- Prix cible : manuel (override) ou calcule automatiquement ---
+        target_override = item.get("target_override")
+        if target_override:
+            target = float(target_override)
+            valuation = {"target_price": target, "fair_value": None,
+                         "confidence": "manuelle", "signal": "—",
+                         "methods": {}, "upside_to_fair": None}
+            logger.info("%s : prix cible manuel force = %.2f", ticker, target)
+        else:
+            fundamentals = fetch_fundamentals(ticker)
+            valuation = compute_intrinsic_value(fundamentals, current, margin)
+            target = valuation.get("target_price")
+
+        if target is None:
+            logger.warning(
+                "%s : impossible de calculer le prix cible (donnees insuffisantes), ignore.",
+                ticker,
+            )
+            continue
+
         triggered = (alert_type == "below" and current < target) or \
                     (alert_type == "above" and current > target)
 
         logger.info(
-            "Verif %s : cours=%.2f cible=%.2f type=%s → %s",
-            ticker, current, target, alert_type,
+            "Verif %s : cours=%.2f | cible=%.2f (fair=%.2f, conf=%s) | type=%s → %s",
+            ticker, current, target,
+            valuation.get("fair_value") or 0,
+            valuation.get("confidence", "?"),
+            alert_type,
             "ALERTE" if triggered else "pas declenche",
         )
 
@@ -173,6 +207,11 @@ def check_alerts(watchlist: list[dict], prices: list[dict]) -> list[dict]:
             "name": item.get("name", ticker),
             "current_price": current,
             "target_price": target,
+            "fair_value": valuation.get("fair_value"),
+            "valuation_methods": valuation.get("methods", {}),
+            "valuation_confidence": valuation.get("confidence"),
+            "upside_to_fair": valuation.get("upside_to_fair"),
+            "margin_of_safety": margin,
             "alert_type": alert_type,
             "distance_pct": distance,
             "notes": item.get("notes", ""),
@@ -181,8 +220,9 @@ def check_alerts(watchlist: list[dict], prices: list[dict]) -> list[dict]:
         }
         alerts_to_send.append(alert)
         logger.info(
-            "ALERTE : %s cours=%.2f cible=%.2f (%s) distance=%.2f%%",
-            ticker, current, target, alert_type, distance,
+            "ALERTE : %s cours=%.2f cible=%.2f fair=%.2f distance=%.2f%%",
+            ticker, current, target,
+            valuation.get("fair_value") or 0, distance,
         )
 
     return alerts_to_send

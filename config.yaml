@@ -3,23 +3,41 @@ schedule:
   time: "09:00"           # Heure du check quotidien (format HH:MM)
   timezone: "Europe/Paris"
 
+# ============================================================
 # Watchlist : actions a surveiller
+#
+# Champs disponibles par action :
+#   ticker          : symbole Yahoo Finance (obligatoire)
+#   name            : nom lisible (obligatoire)
+#   alert_type      : "below" = alert si cours < cible  |  "above" = alerte si cours > cible
+#   margin_of_safety: decote sur la valeur intrinseque calculee (defaut 0.20 = 20%)
+#   target_override : si renseigne, force un prix cible manuel et ignore le calcul auto
+#   notes           : these d'investissement
+#
+# Le prix cible est calcule automatiquement via :
+#   - Graham Number (sqrt(22.5 x EPS x BVPS))
+#   - Formule de croissance Ben Graham (EPS x (8.5 + 2g))
+#   - DCF simplifie (FCF par action actualise sur 10 ans)
+#   - Consensus analystes (objectif moyen Wall Street)
+# ============================================================
 watchlist:
   - ticker: "ASML.AS"
     name: "ASML"
-    target_price: 750.0
-    alert_type: "below"   # 'below' = alerte si cours < cible, 'above' = alerte si cours > cible
-    notes: "Attendre correction post-resultats"
+    alert_type: "below"
+    margin_of_safety: 0.20
+    notes: "Leader mondial lithographie EUV, quasi-monopole technologique. Attendre correction."
+
   - ticker: "STMPA.PA"
     name: "STMicroelectronics"
-    target_price: 22.0
     alert_type: "below"
-    notes: "Rebond de cycle semi-conducteurs"
+    margin_of_safety: 0.25   # Cyclique => marge plus large
+    notes: "Rebond de cycle semi-conducteurs. Sensible aux tensions geopolitiques."
+
   - ticker: "AIR.PA"
     name: "Airbus"
-    target_price: 155.0
     alert_type: "below"
-    notes: ""
+    margin_of_safety: 0.20
+    notes: "Duopole mondial avec Boeing. Carnet de commandes record."
 
 # Notifications email
 email:

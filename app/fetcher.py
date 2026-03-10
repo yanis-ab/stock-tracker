@@ -213,12 +213,65 @@ def fetch_analyst_data(ticker: str) -> dict:
     return result
 
 
+def fetch_fundamentals(ticker: str) -> dict:
+    """
+    Recupere les donnees fondamentales brutes necessaires au calcul de
+    la valeur intrinseque (module valuation.py).
+
+    Retourne :
+      trailing_eps, forward_eps, book_value_per_share,
+      free_cashflow, shares_outstanding,
+      earnings_growth, revenue_growth, analyst_target_mean
+    """
+    result = {
+        "ticker": ticker,
+        "trailing_eps": None,
+        "forward_eps": None,
+        "book_value_per_share": None,
+        "free_cashflow": None,
+        "shares_outstanding": None,
+        "earnings_growth": None,
+        "revenue_growth": None,
+        "analyst_target_mean": None,
+    }
+    try:
+        info = yf.Ticker(ticker).info
+
+        # Benefices par action
+        result["trailing_eps"] = info.get("trailingEps")
+        result["forward_eps"] = info.get("forwardEps")
+
+        # Valeur comptable par action
+        result["book_value_per_share"] = info.get("bookValue")
+
+        # Free cash-flow et actions en circulation (pour FCF/action)
+        result["free_cashflow"] = info.get("freeCashflow")
+        result["shares_outstanding"] = (
+            info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
+        )
+
+        # Taux de croissance (decimaux : 0.12 = 12%)
+        eg = info.get("earningsGrowth")
+        rg = info.get("revenueGrowth")
+        result["earnings_growth"] = eg
+        result["revenue_growth"] = rg
+
+        # Objectif prix analystes
+        result["analyst_target_mean"] = info.get("targetMeanPrice")
+
+    except Exception as exc:
+        logger.error("Erreur fondamentaux %s : %s", ticker, exc)
+
+    return result
+
+
 def fetch_full_data(ticker: str) -> dict:
     """
-    Agregat complet : cours + indicateurs techniques + donnees analystes.
+    Agregat complet : cours + indicateurs techniques + donnees analystes + fondamentaux.
     Utilise pour la vue d'ensemble du dashboard.
     """
     price = fetch_latest_price(ticker) or {"ticker": ticker}
     technicals = fetch_technicals(ticker)
     analyst = fetch_analyst_data(ticker)
-    return {**price, **technicals, **analyst}
+    fundamentals = fetch_fundamentals(ticker)
+    return {**price, **technicals, **analyst, **fundamentals}
