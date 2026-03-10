@@ -58,8 +58,9 @@ def compute_conviction_score(
         ok = rsi < 40
         if ok:
             score += 1
+        rsi_msg = "— survendu, pression baissière" if ok else "— pas encore survendu"
         criteria.append({
-            "label": f"RSI {rsi:.0f} {'— survendu, pression baissi\u00e8re' if ok else '— pas encore survendu'}",
+            "label": f"RSI {rsi:.0f} {rsi_msg}",
             "ok": ok,
         })
     else:
