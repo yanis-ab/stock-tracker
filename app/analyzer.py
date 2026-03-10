@@ -154,6 +154,12 @@ def check_alerts(watchlist: list[dict], prices: list[dict]) -> list[dict]:
         triggered = (alert_type == "below" and current < target) or \
                     (alert_type == "above" and current > target)
 
+        logger.info(
+            "Verif %s : cours=%.2f cible=%.2f type=%s → %s",
+            ticker, current, target, alert_type,
+            "ALERTE" if triggered else "pas declenche",
+        )
+
         if not triggered:
             continue
 

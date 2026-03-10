@@ -10,7 +10,7 @@ watchlist:
     target_price: 750.0
     alert_type: "below"   # 'below' = alerte si cours < cible, 'above' = alerte si cours > cible
     notes: "Attendre correction post-resultats"
-  - ticker: "STM.MI"
+  - ticker: "STMPA.PA"
     name: "STMicroelectronics"
     target_price: 22.0
     alert_type: "below"
